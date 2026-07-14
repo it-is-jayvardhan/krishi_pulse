@@ -8,10 +8,10 @@ export function useGeographies() {
   const [states, setStates] = React.useState<GeoLocation[]>([]);
   const [districtsByState, setDistrictsByState] = React.useState<Record<string, GeoLocation[]>>({});
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null); // <-- 1. Add error state
 
   React.useEffect(() => {
     async function fetchGeographies() {
-      // 1. Check cache first
       const cachedStates = sessionStorage.getItem("cache_states");
       const cachedDistricts = sessionStorage.getItem("cache_districts");
       if (cachedStates && cachedDistricts) {
@@ -21,11 +21,19 @@ export function useGeographies() {
         return; 
       }
 
+      setError(null);
       try {
-        // Replace lines 24-30 with this:
-const response = await fetch("/api/agmarknet/geographies", {
-  method: "GET",
-});
+        const response = await fetch("/api/agmarknet/geographies", {
+          method: "GET",
+        });
+
+        // <-- 2. Catch the API limit error here
+        if (!response.ok) {
+          if (response.status === 429 || response.status === 409) {
+             throw new Error("API limit exceeded. Please try again after 1 hour.");
+          }
+          throw new Error("Failed to fetch geographies.");
+        }
 
         const result = await response.json();
 
@@ -60,8 +68,8 @@ const response = await fetch("/api/agmarknet/geographies", {
           sessionStorage.setItem("cache_states", JSON.stringify(uniqueStates));
           sessionStorage.setItem("cache_districts", JSON.stringify(finalDistricts));
         }
-      } catch (error) {
-        console.error("Failed to fetch geographies:", error);
+      } catch (e: any) {
+        setError(e.message || "An unexpected error occurred."); // <-- 3. Save error
       } finally {
         setLoading(false);
       }
@@ -70,5 +78,5 @@ const response = await fetch("/api/agmarknet/geographies", {
     fetchGeographies();
   }, []);
 
-  return { states, districtsByState, loading };
+  return { states, districtsByState, loading, error }; // <-- 4. Return error
 }

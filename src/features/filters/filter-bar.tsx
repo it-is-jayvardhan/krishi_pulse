@@ -35,21 +35,23 @@ interface FilterBarProps {
 export function FilterBar({ value, favorites, onApply, onToggleFavorite, onError }: FilterBarProps) {
   const [pending, setPending] = React.useState<Filters>(value);
   
-  const { commodities, loading: commLoading } = useCommodities();
-  const { states, districtsByState, loading: geoLoading } = useGeographies();
-
+const { commodities, loading: commLoading, error: commError } = useCommodities();
+  const { states, districtsByState, loading: geoLoading, error: geoError } = useGeographies();
+  
+  const isBaseLoading = commLoading || geoLoading;
   
   // Find the selected IDs based on the string names stored in state
   const selectedCommodityId = commodities.find(c => c.name === pending.commodity)?.id;
   const selectedStateId = states.find(s => s.name === pending.state)?.id;
   const selectedDistrictId = (districtsByState[pending.state] || []).find(d => d.name === pending.district)?.id;
+  const { markets, loading: marketsLoading, error: marketError } = useMarkets(selectedCommodityId, selectedStateId, selectedDistrictId);
 
   // Fetch dynamic markets based on the selected IDs above
   // const { markets, loading: marketsLoading } = useMarkets(selectedCommodityId, selectedStateId, selectedDistrictId);
   
-  const isBaseLoading = commLoading || geoLoading;
+  // const isBaseLoading = commLoading || geoLoading;
   // / 2. Extract the error from useMarkets
-  const { markets, loading: marketsLoading, error: marketError } = useMarkets(selectedCommodityId, selectedStateId, selectedDistrictId);
+  // const { markets, loading: marketsLoading, error: marketError } = useMarkets(selectedCommodityId, selectedStateId, selectedDistrictId);
   // Set default items once the initial APIs load
   React.useEffect(() => {
     if (!isBaseLoading) {
@@ -92,13 +94,15 @@ export function FilterBar({ value, favorites, onApply, onToggleFavorite, onError
   }
 
   // 3. Watch for the error and send it up to page.tsx
+// Watch for any error across all APIs and send the first one it finds up to page.tsx
   React.useEffect(() => {
-    if (marketError) {
-      onError(marketError);
+    const combinedError = commError || geoError || marketError;
+    if (combinedError) {
+      onError(combinedError);
     } else {
       onError(null);
     }
-  }, [marketError, onError]);
+  }, [commError, geoError, marketError, onError]);
 
   return (
     <div className=" top-16 z-40 border-b border-border bg-background/95 backdrop-blur-sm">
@@ -181,22 +185,24 @@ export function FilterBar({ value, favorites, onApply, onToggleFavorite, onError
           disabled={marketsLoading || markets.length === 0}
         />
 
-        {/* Kept standard Select for Month and Year */}
-        <Select
+        {/* Use SearchableSelect for Month to match the theme */}
+        <SearchableSelect
           icon={<CalendarDays />}
           value={String(pending.monthIndex)}
           onChange={(v) => setPending((p) => ({ ...p, monthIndex: Number(v) }))}
           options={MONTHS.map((m, i) => ({ label: m, value: String(i) }))}
           className="w-full sm:w-36"
-          aria-label="Month"
+          placeholder="Month"
         />
         
-        <Select
+        {/* Use SearchableSelect for Year to match the theme */}
+        <SearchableSelect
           value={String(pending.year)}
           onChange={(v) => setPending((p) => ({ ...p, year: Number(v) }))}
+          // The mapping function handles the numbers dynamically
           options={YEARS.map((y) => ({ label: String(y), value: String(y) }))}
           className="w-full sm:w-24"
-          aria-label="Year"
+          placeholder="Year"
         />
         
         <Button 

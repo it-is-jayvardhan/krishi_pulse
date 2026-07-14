@@ -7,22 +7,30 @@ export interface Commodity { id: number; name: string; }
 export function useCommodities() {
   const [commodities, setCommodities] = React.useState<Commodity[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null); // <-- 1. Add error state
 
   React.useEffect(() => {
     async function fetchCommodities() {
-      // 1. Check if we already have this in cache
       const cached = sessionStorage.getItem("cache_commodities");
       if (cached) {
         setCommodities(JSON.parse(cached));
         setLoading(false);
-        return; // Skip the API call entirely
+        return;
       }
 
+      setError(null);
       try {
-        // Replace lines 21-27 with this:
-const response = await fetch("/api/agmarknet/commodities", {
-  method: "GET",
-});
+        const response = await fetch("/api/agmarknet/commodities", {
+          method: "GET",
+        });
+
+        // <-- 2. Catch the API limit error here
+        if (!response.ok) {
+          if (response.status === 429 || response.status === 409) {
+             throw new Error("API limit exceeded. Please try again after 1 hour.");
+          }
+          throw new Error("Failed to fetch commodities.");
+        }
 
         const result = await response.json();
 
@@ -36,12 +44,11 @@ const response = await fetch("/api/agmarknet/commodities", {
           
           const finalData = Array.from(map.values());
           setCommodities(finalData);
-          
-          // 2. Save the result to cache for the next reload
           sessionStorage.setItem("cache_commodities", JSON.stringify(finalData));
         }
-      } catch (error) {
-        console.error("Failed to fetch commodities:", error);
+      } catch (e: any) {
+        // No console.error here so the red screen doesn't pop up!
+        setError(e.message || "An unexpected error occurred."); // <-- 3. Save error
       } finally {
         setLoading(false);
       }
@@ -50,5 +57,5 @@ const response = await fetch("/api/agmarknet/commodities", {
     fetchCommodities();
   }, []);
 
-  return { commodities, loading };
+  return { commodities, loading, error }; // <-- 4. Return error
 }

@@ -30,4 +30,11 @@ export const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ] as const;
 
-export const YEARS = [2023, 2024, 2025, 2026] as const;
+const START_YEAR = 2015;
+const CURRENT_YEAR = new Date().getFullYear();
+
+// This automatically creates an array from 2015 to the present year
+export const YEARS = Array.from(
+  { length: CURRENT_YEAR - START_YEAR + 1 }, 
+  (_, i) => START_YEAR + i
+);
