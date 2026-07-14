@@ -1,0 +1,1 @@
+firebase deploy --only hosting:personal-project-61eb7-bbdf4
