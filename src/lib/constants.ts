@@ -33,8 +33,11 @@ export const MONTHS = [
 const START_YEAR = 2015;
 const CURRENT_YEAR = new Date().getFullYear();
 
+export const MIN_YEAR = START_YEAR;
+export const MAX_YEAR = CURRENT_YEAR;
+
 // This automatically creates an array from 2015 to the present year
 export const YEARS = Array.from(
-  { length: CURRENT_YEAR - START_YEAR + 1 }, 
+  { length: CURRENT_YEAR - START_YEAR + 1 },
   (_, i) => START_YEAR + i
 );

@@ -2,36 +2,69 @@
 
 import * as React from "react";
 import { MarketRecord } from "@/types/market";
+import { getCached, setCached, CACHE_TTL } from "@/lib/api-cache";
 
+function isCurrentOrFutureMonth(monthIndex: number, year: number) {
+  const now = new Date();
+  if (year > now.getFullYear()) return true;
+  return year === now.getFullYear() && monthIndex >= now.getMonth();
+}
+
+/**
+ * Fetches mandi prices + arrival quantities for a month RANGE in a single
+ * API call (the endpoint already takes from_date/to_date, so there's no
+ * need to fetch month-by-month). Prev/next navigation through the result
+ * happens client-side in CalendarSection - it never triggers a refetch.
+ */
 export function usePrices(
   commodityId?: number,
   stateId?: number,
   districtId?: number,
   marketId?: number,
-  monthIndex?: number,
-  year?: number,
+  startMonthIndex?: number,
+  startYear?: number,
+  endMonthIndex?: number,
+  endYear?: number,
   commodityName: string = "",
   stateName: string = "",
   marketName: string = ""
-){
+) {
   const [records, setRecords] = React.useState<MarketRecord[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null); // <-- Add error state
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!commodityId || !stateId || !districtId || !marketId || monthIndex === undefined || !year) {
+    if (
+      !commodityId || !stateId || !districtId || !marketId ||
+      startMonthIndex === undefined || !startYear ||
+      endMonthIndex === undefined || !endYear
+    ) {
       setRecords([]);
+      setError(null);
       return;
     }
 
+    const cacheKey = `agmarknet_prices_v1_${commodityId}_${stateId}_${districtId}_${marketId}_${startYear}_${startMonthIndex}_${endYear}_${endMonthIndex}`;
+    // If the range reaches into the current (still-reporting) month, use a
+    // short TTL so today's arrivals eventually show up. A fully historical
+    // range never changes, so it's safe to cache indefinitely.
+    const ttl = isCurrentOrFutureMonth(endMonthIndex, endYear) ? CACHE_TTL.CURRENT_MONTH_PRICES : undefined;
+
     async function fetchPrices() {
+      const cached = getCached<MarketRecord[]>(cacheKey, ttl);
+      if (cached) {
+        setRecords(cached);
+        setError(null);
+        return;
+      }
+
       setLoading(true);
-      setError(null); // Reset error on new fetch
+      setError(null);
       try {
-        const fromDate = `${year!}-${String(monthIndex! + 1).padStart(2, '0')}-01`;
-        const lastDay = new Date(year!, monthIndex! + 1, 0).getDate();
-        const toDate = `${year!}-${String(monthIndex! + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-        
+        const fromDate = `${startYear}-${String(startMonthIndex! + 1).padStart(2, '0')}-01`;
+        const lastDay = new Date(endYear!, endMonthIndex! + 1, 0).getDate();
+        const toDate = `${endYear}-${String(endMonthIndex! + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
         const headers = { "Content-Type": "application/json" };
         const body = JSON.stringify({
           commodity_id: commodityId,
@@ -47,16 +80,14 @@ export function usePrices(
           fetch("/api/agmarknet/quantities", { method: "POST", headers, body })
         ]);
 
-        // Check if either of the responses failed
         if (!pricesRes.ok || !quantitiesRes.ok) {
           const failedRes = !pricesRes.ok ? pricesRes : quantitiesRes;
           const errorBody = await failedRes.json();
-          
-          // Handle the rate limit check
+
           if (failedRes.status === 429 || JSON.stringify(errorBody).toLowerCase().includes("limit exceeded")) {
             throw new Error("API limit exceeded. Please try again after 1 hour.");
           }
-          
+
           throw new Error(errorBody.error || `Server responded with status ${failedRes.status}`);
         }
 
@@ -83,17 +114,18 @@ export function usePrices(
               minPrice: item.min_price,
               maxPrice: item.max_price,
               modalPrice: item.modal_price,
-              arrivalQuantity: quantityMap.get(cleanDate) || 0 
+              arrivalQuantity: quantityMap.get(cleanDate) || 0
             };
           });
-          
-          setRecords(mapped.sort((a, b) => a.date.localeCompare(b.date)));
+
+          const sorted = mapped.sort((a, b) => a.date.localeCompare(b.date));
+          setRecords(sorted);
+          setCached(cacheKey, sorted);
         } else {
           setRecords([]);
         }
       } catch (e: any) {
-        console.error("Failed to fetch historical market data:", e);
-        setError(e.message || "An unexpected error occurred."); // <-- Save error text
+        setError(e.message || "An unexpected error occurred.");
         setRecords([]);
       } finally {
         setLoading(false);
@@ -101,7 +133,7 @@ export function usePrices(
     }
 
     fetchPrices();
-  }, [commodityId, stateId, districtId, marketId, monthIndex, year]);
+  }, [commodityId, stateId, districtId, marketId, startMonthIndex, startYear, endMonthIndex, endYear, commodityName, stateName, marketName]);
 
-  return { records, loading, error }; // <-- Return error state
+  return { records, loading, error };
 }

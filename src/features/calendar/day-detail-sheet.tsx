@@ -13,7 +13,12 @@ interface DayDetailSheetProps {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-IN", {
+  // Build the Date from its y/m/d parts directly (local time) instead of
+  // `new Date(iso)`, which parses a date-only string as UTC midnight and
+  // can render as the *previous* day for anyone west of Greenwich.
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString("en-IN", {
     weekday: "long",
     day: "numeric",
     month: "long",

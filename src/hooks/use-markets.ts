@@ -1,23 +1,34 @@
 "use client";
 
 import * as React from "react";
+import { getCached, setCached, CACHE_TTL } from "@/lib/api-cache";
 
 export interface Market { id: number; name: string; }
 
 export function useMarkets(commodityId?: number, stateId?: number, districtId?: number) {
   const [markets, setMarkets] = React.useState<Market[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null); // <-- 1. Add error state
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!commodityId || !stateId || !districtId) {
       setMarkets([]);
+      setError(null);
       return;
     }
 
+    const cacheKey = `agmarknet_markets_v1_${commodityId}_${stateId}_${districtId}`;
+
     async function fetchMarkets() {
+      const cached = getCached<Market[]>(cacheKey, CACHE_TTL.REFERENCE_DATA);
+      if (cached) {
+        setMarkets(cached);
+        setError(null);
+        return;
+      }
+
       setLoading(true);
-      setError(null); // <-- Reset error on new fetch
+      setError(null);
       try {
         const response = await fetch("/api/agmarknet/markets", {
           method: "POST",
@@ -30,10 +41,9 @@ export function useMarkets(commodityId?: number, stateId?: number, districtId?: 
           })
         });
 
-        // <-- 2. Catch the 429 limit exceeded error here
         if (!response.ok) {
           if (response.status === 429) {
-             throw new Error("API limit exceeded. Please try again after 1 hour.");
+            throw new Error("API limit exceeded. Please try again after 1 hour.");
           }
           throw new Error("Failed to fetch markets.");
         }
@@ -47,15 +57,14 @@ export function useMarkets(commodityId?: number, stateId?: number, districtId?: 
               map.set(m.market_name, { id: m.market_id, name: m.market_name });
             }
           });
-          setMarkets(Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name)));
+          const finalMarkets = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+          setMarkets(finalMarkets);
+          setCached(cacheKey, finalMarkets);
         } else {
           setMarkets([]);
         }
       } catch (e: any) {
-        // Remove or comment out the console.error line!
-        console.error("Failed to fetch markets:", e); 
-        
-        setError(e.message || "An unexpected error occurred."); 
+        setError(e.message || "An unexpected error occurred.");
         setMarkets([]);
       } finally {
         setLoading(false);
@@ -65,5 +74,5 @@ export function useMarkets(commodityId?: number, stateId?: number, districtId?: 
     fetchMarkets();
   }, [commodityId, stateId, districtId]);
 
-  return { markets, loading, error }; // <-- 4. Return the error
+  return { markets, loading, error };
 }
