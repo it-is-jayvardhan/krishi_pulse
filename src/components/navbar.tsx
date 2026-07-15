@@ -12,7 +12,7 @@ export function Navbar() {
   const [open, setOpen] = React.useState(false);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur-sm">
+    <header className=" z-50 w-full border-b border-border bg-background/95 backdrop-blur-sm">
       <nav className="section-container flex items-center justify-between py-3">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">

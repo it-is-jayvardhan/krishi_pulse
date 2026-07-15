@@ -1,76 +1,98 @@
 import { NextRequest, NextResponse } from "next/server";
+import { MandiRecord } from "@/types/mandi";
 
-const BASE_URL = "https://api.ceda.ashoka.edu.in/v1/agmarknet";
+// "Current Daily Price of Various Commodities from Various Markets (Mandi)",
+// Ministry of Agriculture and Farmers Welfare / data.gov.in.
+const RESOURCE_ID = "9ef84268-d588-465a-a308-a864a43d0070";
+const BASE_URL = `https://api.data.gov.in/resource/${RESOURCE_ID}`;
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
-) {
-  const resolvedParams = await params;
-  const targetUrl = `${BASE_URL}/${resolvedParams.path.join("/")}`;
-
-  try {
-    const res = await fetch(targetUrl, {
-      headers: {
-        Authorization: `Bearer ${process.env.CEDA_API_TOKEN}`,
-        accept: "application/json",
-      },
-    });
-
-    // If the API returns a bad status (like 429 or 500), read its error body and pass it along
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      return NextResponse.json(
-        { 
-          error: errorData.message || "External API Error", 
-          raw: errorData,
-          status: res.status 
-        }, 
-        { status: res.status }
-      );
-    }
-
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to fetch GET" }, { status: 500 });
-  }
+/** API gives dates as dd/mm/yyyy - normalize to ISO yyyy-mm-dd. */
+function toIsoDate(raw: string): string {
+  const [dd, mm, yyyy] = raw.split("/");
+  if (!dd || !mm || !yyyy) return raw;
+  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
-) {
-  const resolvedParams = await params;
-  const targetUrl = `${BASE_URL}/${resolvedParams.path.join("/")}`;
-  const body = await request.json();
+function toNumber(raw: unknown): number {
+  const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const state = searchParams.get("state")?.trim();
+  const commodity = searchParams.get("commodity")?.trim();
+
+  if (!state || !commodity) {
+    return NextResponse.json(
+      { error: "Both 'state' and 'commodity' query params are required." },
+      { status: 400 }
+    );
+  }
+
+  // Load the API key exclusively from the environment variables
+  const apiKey = process.env.DATA_GOV_IN_API_KEY;
+
+  // Fail safely if the environment variable is missing
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "Server configuration error: API key missing." },
+      { status: 500 }
+    );
+  }
+
+  const url = new URL(BASE_URL);
+  url.searchParams.set("api-key", apiKey);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "200");
+  url.searchParams.set("filters[state]", state);
+  url.searchParams.set("filters[commodity]", commodity);
 
   try {
-    const res = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.CEDA_API_TOKEN}`,
-        accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+    const res = await fetch(url.toString(), {
+      headers: { accept: "application/json" },
+      // Current-day prices - avoid Next.js's default aggressive caching.
+      cache: "no-store",
     });
 
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
+      const errorBody = await res.text().catch(() => "");
       return NextResponse.json(
-        { 
-          error: errorData.message || "External API Error", 
-          raw: errorData,
-          status: res.status 
-        }, 
+        { error: "External API error", raw: errorBody, status: res.status },
         { status: res.status }
       );
     }
 
     const data = await res.json();
-    return NextResponse.json(data);
+    const rawRecords: any[] = Array.isArray(data.records) ? data.records : [];
+
+    // The API can include nearby/other-state matches in some queries -
+    // filter down to an exact (case-insensitive) match on the requested
+    // state, since that's the whole point of the state filter.
+    const records: MandiRecord[] = rawRecords
+      .filter((r) => (r.state || "").trim().toLowerCase() === state.toLowerCase())
+      .map((r) => ({
+        state: r.state,
+        district: r.district,
+        market: r.market,
+        commodity: r.commodity,
+        variety: r.variety,
+        grade: r.grade,
+        arrivalDate: toIsoDate(r.arrival_date),
+        minPrice: toNumber(r.min_price),
+        maxPrice: toNumber(r.max_price),
+        modalPrice: toNumber(r.modal_price),
+      }));
+
+    return NextResponse.json({
+      records,
+      count: records.length,
+      fetchedAt: new Date().toISOString(),
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to fetch POST" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch mandi prices" },
+      { status: 500 }
+    );
   }
 }
